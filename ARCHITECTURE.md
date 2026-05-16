@@ -77,3 +77,75 @@ Validates AI-generated outputs for operational safety.
 ## Persistent Memory
 
 Stores incident history and RCA outputs in memory_store.json.
+
+
+
+# OpsMind-AI v2.0 Architecture
+
+## Autonomous Agentic Workflow
+
+```text
+Client/API Request
+        ↓
+FastAPI REST API
+        ↓
+LangGraph Orchestrator
+        ↓
+Planner Agent (LLM)
+        ↓
+Dynamic Tool Selection
+        ↓
+Tool Registry
+        ↓
+Dynamic Tool Execution
+        ↓
+Monitoring / Logs / RAG
+        ↓
+Shared Workflow State Enrichment
+        ↓
+LLM RCA Analysis
+        ↓
+Safety Validation
+        ↓
+Persistent Incident Memory
+```
+
+---
+
+## Planner Agent
+
+The Planner Agent uses Ollama + Mistral to dynamically determine which operational tools should execute for a given incident.
+
+Example tool selection:
+
+```json
+{
+  "selected_tools": [
+    "monitoring",
+    "logs",
+    "rag"
+  ]
+}
+```
+
+---
+
+## Tool Registry
+
+The tool registry enables dynamic lookup and execution of operational tools.
+
+Example:
+
+```python
+TOOLS = {
+    "monitoring": monitoring_agent,
+    "logs": log_analysis_agent,
+    "rag": vector_knowledge_agent
+}
+```
+
+---
+
+## Dynamic Tool Executor
+
+The Tool Executor dynamically invokes selected tools and enriches shared workflow state during runtime.

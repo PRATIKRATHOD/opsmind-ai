@@ -10,10 +10,14 @@ from app.agents.vector_knowledge_agent import (
 from app.agents.llm_analysis_agent import llm_analysis_agent
 from app.safety.guardrails import validate_ai_recommendation
 from app.reliability.retry_handler import execute_with_retry
+from app.planner.planner_agent import planner_agent
+from app.planner.tool_executor import execute_tools
 
 
 class IncidentState(TypedDict):
 
+    planner_result: dict
+    
     incident: dict
 
     monitoring_result: dict
@@ -25,6 +29,8 @@ class IncidentState(TypedDict):
     llm_result: str
 
     safety_result: dict
+
+    
 
 
 def monitoring_node(state):
@@ -135,6 +141,35 @@ def safety_node(state):
 
     return state
 
+
+def planner_node(state):
+
+    print("Running Planner Node")
+
+    result = planner_agent(state["incident"])
+
+    state["planner_result"] = result
+
+    return state
+
+
+def tool_executor_node(state):
+
+    print("Running Tool Executor Node")
+
+    results = execute_tools(state)
+
+    if "monitoring" in results:
+        state["monitoring_result"] = results["monitoring"]
+
+    if "logs" in results:
+        state["log_result"] = results["logs"]
+
+    if "rag" in results:
+        state["knowledge_result"] = results["rag"]
+
+    return state
+
 # def route_after_logs(state):
 
 #     log_status = state["log_result"]["status"]
@@ -144,34 +179,74 @@ def safety_node(state):
 
 #     return "llm"
 
+# workflow = StateGraph(IncidentState)
+
+# workflow.add_node("monitoring", monitoring_node)
+
+# workflow.add_node("logs", log_analysis_node)
+
+# workflow.add_node("knowledge", knowledge_node)
+
+# workflow.add_node("llm", llm_node)
+
+# workflow.add_node("safety", safety_node)
+
+# workflow.set_entry_point("monitoring")
+
+# workflow.add_edge("monitoring", "logs")
+
+# workflow.add_edge("logs", "knowledge")
+
+# # Adding Conditional Edge
+# # workflow.add_conditional_edges(
+# #     "logs",
+# #     route_after_logs
+# # )
+
+# workflow.add_edge("knowledge", "llm")
+
+# workflow.add_edge("llm", "safety")
+
+# workflow.add_edge("safety", END)
+
+
+
 workflow = StateGraph(IncidentState)
 
-workflow.add_node("monitoring", monitoring_node)
+workflow.add_node("planner", planner_node)
 
-workflow.add_node("logs", log_analysis_node)
-
-workflow.add_node("knowledge", knowledge_node)
+workflow.add_node(
+    "tool_executor",
+    tool_executor_node
+)
 
 workflow.add_node("llm", llm_node)
 
 workflow.add_node("safety", safety_node)
 
-workflow.set_entry_point("monitoring")
+workflow.set_entry_point("planner")
 
-workflow.add_edge("monitoring", "logs")
+workflow.add_edge(
+    "planner",
+    "tool_executor"
+)
 
-workflow.add_edge("logs", "knowledge")
+workflow.add_edge(
+    "tool_executor",
+    "llm"
+)
 
-# Adding Conditional Edge
-# workflow.add_conditional_edges(
-#     "logs",
-#     route_after_logs
-# )
+workflow.add_edge(
+    "llm",
+    "safety"
+)
 
-workflow.add_edge("knowledge", "llm")
-
-workflow.add_edge("llm", "safety")
-
-workflow.add_edge("safety", END)
+workflow.add_edge(
+    "safety",
+    END
+)
 
 graph = workflow.compile()
+
+
+

@@ -104,3 +104,38 @@ http://127.0.0.1:8000/docs
 ## Workflow Execution Logs
 
 ![Workflow Logs](screenshots/terminal%20workflow%20logs.png)
+
+
+
+# OpsMind-AI v2.0 — Autonomous Tool Planning
+
+OpsMind-AI v2.0 introduces autonomous tool-planning capabilities using LLM-driven orchestration.
+
+The system now dynamically decides which operational tools to execute based on incident context.
+
+## New v2 Features
+
+* Planner Agent using Ollama + Mistral
+* Dynamic Tool Registry
+* Autonomous Tool Selection
+* Adaptive Workflow Execution
+* Context-Enriched RAG Queries
+* Tool-Based Agent Architecture
+
+## v2 Workflow
+
+```text
+Incident
+↓
+Planner Agent
+↓
+Dynamic Tool Selection
+↓
+Tool Executor
+↓
+Monitoring / Logs / RAG
+↓
+LLM RCA Generation
+↓
+Safety Validation
+```
