@@ -1,6 +1,7 @@
 venv/
-__pycache__/
+**pycache**/
 *.pyc
-.env
 chroma_db/
+memory_store.json
 .vscode/
+.env

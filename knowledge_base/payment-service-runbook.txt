@@ -1,0 +1,11 @@
+PAYMENT SERVICE RUNBOOK
+
+Issue:
+java.lang.OutOfMemoryError
+
+Recommended Actions:
+1. Restart payment-service
+2. Clear JVM cache
+3. Increase heap memory
+4. Verify database connections
+5. Monitor memory utilization after restart

@@ -1,0 +1,112 @@
+# RUNBOOK: Production Java Thread Deadlock Troubleshooting
+**Document Version:** 1.0  
+**Target Audience:** DevOps, SREs, Production Support Engineers, Backend Developers  
+**Objective:** Swiftly detect, safely extract diagnostics, and resolve application thread deadlocks on live JVM instances.
+
+---
+
+## 🚨 PHASE 1: Immediate Triage & Status Verification
+A Java thread deadlock occurs when two or more threads are blocked indefinitely, each waiting for a lock held by the other. This causes targeted API requests or the entire JVM instance to freeze without throwing errors.
+
+### 1.1 Verify Symptom Indicators
+Confirm if your performance charts show the classical deadlock signature:
+*   **CPU Utilization Drops to Zero/Baseline:** Unlike infinite loops, deadlocked threads go into a `BLOCKED` or `WAITING` state, releasing all claim to CPU cycles.
+*   **Response Timeouts & Pool Exhaustion:** Inbound application threads freeze, triggering cascading upstream timeouts (e.g., HTTP 504 Gateway Timeouts) and saturating HTTP worker thread pools.
+
+### 1.2 Identify the Java Process ID (PID)
+Locate the specific process container identifier hosting your frozen application:
+```bash
+PID=$(jcmd | grep -v JCmd | awk '{print $1}')
+echo "Target Java PID: $PID"
+```
+
+---
+
+## 🔍 PHASE 2: Diagnostic Data Gathering
+
+### 2.1 Extract Thread Dumps (Non-Intrusive)
+Capture the exact execution state of all threads. **Do not restart the process yet;** restarts wipe out deadlock evidence entirely. Run these extraction methods sequentially until you get a valid trace:
+
+#### Option A: Using `jcmd` (Recommended Tool)
+```bash
+jcmd $PID Thread.print > /tmp/jvm_thread_dump_$(date +%F_%T).txt
+```
+
+#### Option B: Using `jstack` (Fallback Option)
+```bash
+jstack -l $PID > /tmp/jvm_thread_dump_$(date +%F_%T).txt
+```
+
+#### Option C: Native OS Signal (If Java Tooling is Unreachable)
+If the JVM is heavily locked up and refuses CLI connections, force it to print the thread layout directly into its standard output log:
+```bash
+kill -3 $PID
+```
+
+---
+
+## 🛠️ PHASE 3: Root Cause Analysis (RCA)
+
+Open the generated thread dump file. The HotSpot JVM features an automated deadlock detector that appends its findings to the very bottom of the log file.
+
+### 3.1 Locate the Deadlock Summary
+Scroll to the final lines of your thread dump. Look for this precise header flag:
+```text
+Found one Java-level deadlock:
+=============================
+"Thread-A":
+  waiting to lock monitor 0x00007f88bc01a880 (object 0x0000000712345678, a java.lang.Object),
+  which is held by "Thread-B"
+"Thread-B":
+  waiting to lock monitor 0x00007f88bc01a990 (object 0x0000000787654321, a java.lang.Object),
+  which is held by "Thread-A"
+
+Java stack information for the threads listed above:
+---------------------------------------------------
+"Thread-A":
+    at com.example.Service.methodOne(Service.java:24)
+    - waiting to lock <0x0000000712345678> (a java.lang.Object)
+    - locked <0x0000000787654321> (a java.lang.Object)
+"Thread-B":
+    at com.example.Service.methodTwo(Service.java:42)
+    - waiting to lock <0x0000000787654321> (a java.lang.Object)
+    - locked <0x0000000712345678> (a java.lang.Object)
+
+Found 1 deadlock.
+```
+
+### 3.2 Trace the Locking Chain
+*   Identify the exact lines of code (file names and line numbers) referenced in the trace stack.
+*   Pinpoint the structural mismatch: Note why `Thread-A` is acquiring Resource 1 then Resource 2, while `Thread-B` is acquiring Resource 2 then Resource 1 concurrently.
+
+---
+
+## 🚀 PHASE 4: Mitigations & Code Remediation
+
+### 4.1 Force a Clean Restart to Restore Service
+Once your thread dump is saved securely to persistent storage, execute a restart to break the mutual lock dependency and clear stuck user calls:
+```bash
+# Graceful termination attempt
+kill -15 \$PID
+
+# Forceful kill if unresponsive after 30 seconds
+kill -9 \$PID
+```
+
+### 4.2 Code Fix & Architectural Hardening Checklist
+Pass the stack traces to your developers and verify they apply these programmatic changes:
+
+* [ ] **Enforce Lock Ordering:** Ensure all threads acquire shared resources in the exact same sequence globally across the codebase.
+* [ ] **Migrate to Timed Locks:** Replace classic `synchronized` blocks with explicit `ReentrantLock` structures utilizing `tryLock(long timeout, TimeUnit unit)`. This prevents threads from blocking indefinitely:
+  ```java
+  if (lock.tryLock(5, TimeUnit.SECONDS)) {
+      try {
+          // Process secure resource logic
+      } finally {
+          lock.unlock();
+      }
+  } else {
+      // Gracefully handle timeout fallback instead of deadlocking
+  }
+  ```
+* [ ] **Minimize Lock Scope:** Keep synchronized code boundaries as small and compact as possible. Never execute remote HTTP calls, heavy database transactions, or nested loops while holding an active thread monitor lock.

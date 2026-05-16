@@ -1,0 +1,92 @@
+# RUNBOOK: Apache Kafka Consumer Lag Troubleshooting Guide
+**Document Version:** 1.0  
+**Target Audience:** DevOps, SRE, Platform Engineers, Data Engineers  
+**Objective:** Systematically diagnose, mitigate, and resolve critical Apache Kafka consumer lag spikes.
+
+---
+
+## 🚨 PHASE 1: Immediate Triage & Mitigation
+When consumer lag alerts breach thresholds, execute these steps immediately to protect upstream cluster health and lower queue depths.
+
+### 1.1 Quantify and Isolate the Lag
+Identify if the lag is systemic across all partitions or isolated to a single broker or consumer instance.
+```bash
+# Check lag status for a specific consumer group
+kafka-consumer-groups.sh --bootstrap-server <broker-ip>:9092 \
+  --describe --group <consumer-group-name>
+```
+*   **Systemic Lag (All Partitions):** Indicates an application-wide bottleneck, database slowdown, or a sudden upstream traffic spike.
+*   **Isolated Lag (Single/Few Partitions):** Points to data skew (unbalanced partition keys) or a degraded/frozen consumer thread instance.
+
+### 1.2 Scale Out the Consumer Group (If Partitions Allow)
+If your topic has unassigned or underutilized partitions, scale your application instances up to match the partition count ($Consumers \le Partitions$).
+*   **Kubernetes Horizontal Pod Autoscaler (HPA):**
+    ```bash
+    kubectl scale deployment/<consumer-deployment> --replicas=<target-replica-count> -n <namespace>
+    ```
+*   *Note: Adding more consumers than the total partition count will leave the extra consumers idle.*
+
+### 1.3 Isolate Toxic Payloads (Poison Pills)
+If a single partition is completely stuck and logs reveal serialization errors or infinite loops on a specific offset, manually advance the offset past the poison pill:
+```bash
+# Shift offset forward by 1 for a specific partition to skip a broken message
+kafka-consumer-groups.sh --bootstrap-server <broker-ip>:9092 \
+  --group <consumer-group-name> \
+  --topic <topic-name>:<partition-number> \
+  --reset-offsets --shift-by 1 --execute
+```
+
+---
+
+## 🔍 PHASE 2: Diagnostic Data Gathering
+
+### 2.1 Trace Consumer Thread States
+Generate a thread dump from the lagging consumer process to determine if consumer loop worker threads are blocked or deadlocked:
+```bash
+PID=\$(jcmd | grep -v JCmd | awk '{print \$1}')
+jstack -l \$PID > /tmp/kafka_consumer_thread_dump_\$(date +%F_%T).txt
+```
+*Search the output for `KafkaConsumer.poll` to evaluate whether threads are actively processing or stuck waiting on external downstream systems (like databases or third-party HTTP endpoints).*
+
+### 2.2 Audit Rebalance Logs
+Search the consumer application log files for frequent partition reassignments, which freeze consumer processing loops:
+```bash
+grep -E "Preparing rebalance|Successfully joined group|Revoked partitions" /var/log/apps/<consumer-log>.log
+```
+*Frequent rebalances indicate consumer instability, causing the cluster to repeatedly redistribute partitions rather than process data.*
+
+---
+
+## 🛠️ PHASE 3: Root Cause Analysis (RCA)
+
+Evaluate data collected in Phase 2 against these core root causes:
+
+*   **Downstream Satiation:** The consumer spends too much time processing each record (e.g., executing slow DB inserts or synchronous API calls), making it impossible to keep up with ingestion rates.
+*   **`max.poll.interval.ms` Exceeded:** The consumer takes longer to process a batch of records than allowed by the cluster config. Kafka assumes the consumer is dead, kicks it out of the group, and triggers a destructive rebalance loop.
+*   **Data Skew (Hot Partitioning):** The producer uses a poorly distributed message key (e.g., null keys or low-cardinality values), routing massive record volumes to a single partition while other partitions sit idle.
+*   **Stop-the-World JVM GC Pauses:** Long Garbage Collection pauses freeze the consumer thread, missing vital heartbeat intervals and prompting the coordinator to drop the instance.
+
+---
+
+## 🚀 PHASE 4: Permanent Remediation & Tuning
+
+### 4.1 Apply Production-Ready Consumer Configurations
+Fine-tune consumer properties to balance processing batches against cluster heartbeats:
+
+```properties
+# Reduce batch size if processing logic takes too long per record
+max.poll.records=100
+
+# Increase processing window budget to prevent accidental rebalances
+max.poll.interval.ms=600000 (10 minutes)
+
+# Adjust timeout windows for dead consumer detection
+session.timeout.ms=45000
+heartbeat.interval.ms=15000
+```
+
+### 4.2 Engineering Checklist for Architecture Remediations
+* [ ] **Implement Parallel Processing:** Decouple the Kafka `.poll()` loop thread from active processing by passing records to an internal thread pool (e.g., Java `ExecutorService`) to complete work asynchronously.
+* [ ] **Deploy a Dead Letter Queue (DLQ):** Catch validation and deserialization exceptions inside application code. Route failing payloads to a dedicated `<topic>-dlq` instead of blocking the main pipeline.
+* [ ] **Fix Producer Partitioning Keys:** Ensure producer keys use high-cardinality values (like unique `user_id` or `uuid`) to evenly distribute incoming payloads across all available partitions.
+* [ ] **Implement Batch Operations:** Refactor consumer code to write records to downstream storage systems using bulk or batch execution rather than executing transactional round-trips for every single message.

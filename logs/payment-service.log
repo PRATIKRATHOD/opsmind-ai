@@ -1,0 +1,40 @@
+# --------------------------------------------------------------------------------
+# LOG FORMAT REFERENCE: Microservice Payment Processing & Gateway Failures
+# --------------------------------------------------------------------------------
+
+# CASE 1: Downstream Payment Gateway API Timeout (HTTP 504 Pipeline Breakdown)
+2026-05-16 14:32:01.104 ERROR 22104 --- [nio-8080-exec-2] c.e.payment.gateway.StripeClient        : [TxID: tx_884192b4] Failed to execute charge payload for Customer: cus_O1a2b3. Gateway un-reachable.
+feign.RetryableException: Read timed out executing POST https://stripe.com
+	at feign.FeignException.errorExecuting(FeignException.java:268) ~[feign-core-12.x.jar:na]
+	at feign.SynchronousMethodHandler.executeAndDecode(SynchronousMethodHandler.java:129) ~[feign-core-12.x.jar:na]
+Caused by: java.net.SocketTimeoutException: Read timed out
+	at java.net.SocketInputStream.socketRead0(Native Method) ~[na:na]
+2026-05-16 14:32:01.115 WARN 22104 --- [nio-8080-exec-2] c.e.payment.service.CheckoutProcessor    : [TxID: tx_884192b4] Payment processing timed out. Enqueuing transaction recovery task to compensating-queue.
+
+
+# CASE 2: Resilience4j Circuit Breaker Open Block (Preventing Saturated Requests)
+2026-05-16 14:32:05.432 WARN 22104 --- [nio-8080-exec-5] c.e.p.g.Resilience4jPaymentGateway       : [TxID: None] Call rejected by circuit breaker 'paymentGatewayCircuitBreaker' because the circuit is OPEN. Downstream dependency is degraded.
+io.github.resilience4j.circuitbreaker.CallNotPermittedException: CircuitBreaker 'paymentGatewayCircuitBreaker' is OPEN and does not permit further calls
+	at io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine$OpenState.acquirePermission(CircuitBreakerStateMachine.java:639) ~[resilience4j-circuitbreaker-2.x.jar:2.x]
+	at io.github.resilience4j.circuitbreaker.CircuitBreaker.executeSupplier(CircuitBreaker.java:300) ~[resilience4j-circuitbreaker-2.x.jar:2.x]
+2026-05-16 14:32:05.435 INFO 22104 --- [nio-8080-exec-5] c.e.payment.web.PaymentController        : [TxID: None] Returning HTTP 503 Service Unavailable (Fallback applied: payment deferred).
+
+
+# CASE 3: Idempotency Key Collision (Duplicate Submission Block)
+2026-05-16 14:33:12.881 WARN 22104 --- [nio-8080-exec-9] c.e.payment.interceptor.IdempotencyCheck : Conflict detected. Idempotency-Key 'idem-key-99124-88a' already exists in Redis cache storage. Rejecting concurrent duplicate request payload.
+2026-05-16 14:33:12.885 ERROR 22104 --- [nio-8080-exec-9] c.e.p.exception.GlobalExceptionHandler  : Handling ResourceConflictException: Duplicate transaction execution prevented for key: idem-key-99124-88a. Returning HTTP 409 Conflict.
+
+
+# CASE 4: Insufficient Funds / Soft Decline (Clean Functional Failure)
+2026-05-16 14:34:45.012 INFO 22104 --- [io-8080-exec-12] c.e.payment.gateway.AdyenClient         : [TxID: tx_9912aa41] Gateway response received. Status: DECLINED, Reason: INSUFFICIENT_FUNDS, CardToken: tok_44b2
+2026-05-16 14:34:45.019 WARN 22104 --- [io-8080-exec-12] c.e.payment.service.OrderStateService   : [TxID: tx_9912aa41] Updating Order status to PAYMENT_FAILED for OrderID: ord_7741295
+
+
+# CASE 5: Distributed Database Transaction Deadlock during Balance Deduction
+2026-05-16 14:36:22.913 ERROR 22104 --- [HikariPool-1-worker-3] o.h.engine.jdbc.spi.SqlExceptionHelper   : PostgreSQL JDBC Driver: ERROR: deadlock detected
+  Detail: Process 12450 waits for ShareLock on transaction 99412; blocked by process 12451.
+  Process 12451 waits for ShareLock on transaction 99411; blocked by process 12450.
+  Hint: See server log for query details.
+2026-05-16 14:36:22.920 ERROR 22104 --- [nio-8080-exec-4] c.e.p.repository.AccountBalanceRepo     : [TxID: tx_11048b2a] Database state exception during active balance modification account_id: 88412
+org.springframework.dao.DeadlockLoserDataAccessException: JDBC batch update; SQL [UPDATE account_balances SET balance = balance - ? WHERE account_id = ?]; deadlock detected
+	at org.springframework.jdbc.support.SQLErrorCodeSQLExceptionTranslator.doTranslate(SQLErrorCodeSQLExceptionTranslator.java:271) ~[spring-jdbc-6.x.jar:6.x]

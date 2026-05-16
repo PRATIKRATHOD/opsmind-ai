@@ -1,0 +1,76 @@
+# RUNBOOK: Authentication Token Failure & Expired JWT Mitigation
+**Document Version:** 1.0  
+**Target Audience:** DevOps, SREs, Production Support, Security Engineers  
+**Objective:** Rapidly diagnose and remediate systemic authentication token failures, expired JWT trends, and client-side sign-in blockages.
+
+---
+
+## 🚨 PHASE 1: Immediate Triage & Scope Isolation
+When authentication errors spike (e.g., HTTP 401 Unauthorized or HTTP 403 Forbidden), isolate whether the issue is cryptographic, downstream, or clock-related.
+
+### 1.1 Quantify the Error Blast Radius
+Execute log parsing to classify the failure pattern across your cluster:
+*   **Single User / Single Client Platform:** Likely an isolated expired session or invalid client-side local storage cache.
+*   **Systemic (All Users / All Routes):** Indicates expired token signing keys, verification server outages, or system clock drift.
+
+### 1.2 Inspect Application Gateway / Authentication Logs
+Run a live log search to identify the active authentication exception type:
+```bash
+# Check for explicit token verification exceptions
+grep -E "ExpiredJwtException|SignatureException|MalformedJwtException|InsufficientAuthenticationException" /var/log/apps/auth-service.log -B 1 -A 3
+```
+
+---
+
+## 🔍 PHASE 2: Diagnostic Data Gathering
+
+### 2.1 Verify Server Clock Synchronization (Clock Drift)
+If tokens generated a moment ago are rejected instantly as "expired," check if system clocks between the API Gateway and the Identity Provider (IdP) have drifted:
+```bash
+# Check synchronization status with network time servers
+timedatectl status
+```
+*Look for `NTP service: active` and `System clock synchronized: yes`. A drift of even a few seconds will cause transient JWT verification drops.*
+
+### 2.2 Validate External Identity Provider (IdP) Connectivity
+If your microservices delegate token validation to an external provider (e.g., Okta, Auth0, Keycloak) via JWKS (JSON Web Key Sets), check outbound network reachability:
+```bash
+# Test connection to the IdP well-known openid configuration endpoint
+curl -I -s https://production.local
+```
+*If this returns a connection timeout or an HTTP 5xx error, your services cannot fetch public keys to verify incoming signatures.*
+
+---
+
+## 🛠️ PHASE 3: Root Cause Analysis (RCA)
+
+Match your diagnostic output against these frequent token degradation triggers:
+
+*   **Signature Verification Failure (`SignatureException`):** The secret token signing key was rotated or deployed incorrectly. The microservice is validating signatures using an outdated key string.
+*   **Clock Drift Expiry (`ExpiredJwtException`):** The client or token issuer clock is ahead of the validation service clock, or the token's Time-To-Live (TTL) budget is sized too low for slow mobile networks.
+*   **JWKS Cache Stale / Poisoned:** The authentication filter caches public validation keys locally. If the IdP updates keys unexpectedly, the microservice fails requests until its local cache expires or resets.
+
+---
+
+## 🚀 PHASE 4: Permanent Remediation & Hardening
+
+### 4.1 Apply Defensive Configuration Tuning
+Update your application framework properties file to accommodate minor clock drift and manage key caching securely:
+
+```properties
+# Example configuration adjustments for Spring Security / JWT Filters
+
+# 1. Allow a 60-second clock skew window to handle transient host sync drifts
+security.token.allowed-clock-skew-seconds=60
+
+# 2. Enforce explicit cache TTL limits for external JWKS keys
+security.oauth2.resourceserver.jwt.jwk-set-cache-ttl-minutes=15
+
+# 3. Explicit token lifecycle bounds
+security.token.access-token-validity-ms=900000
+```
+
+### 4.2 Architectural Checklist for Engineering Teams
+* [ ] **Implement Refresh Tokens:** Decouple short-lived access tokens (e.g., 15 minutes) from long-lived refresh tokens stored securely in HTTP-only cookies to prevent sudden session drops.
+* [ ] **Graceful Key Rotation:** When updating signing certificates or keys, always preserve the old public verification key alongside the new key for a minimum overlap period of 24 hours.
+* [ ] **Centralized Exception Handling:** Implement a global custom `AuthenticationEntryPoint` to convert raw, internal cryptographic exceptions into clean, structured JSON tracking error messages for client web-apps.

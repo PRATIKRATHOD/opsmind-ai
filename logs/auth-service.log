@@ -1,0 +1,44 @@
+# --------------------------------------------------------------------------------
+# LOG FORMAT REFERENCE: Spring Boot / Spring Security Authentication Exceptions
+# --------------------------------------------------------------------------------
+
+# CASE 1: Standard Username/Password Failure (Bad Credentials)
+2026-05-14 00:01:15.342 WARN 12405 --- [nio-8080-exec-3] o.s.s.c.AuthenticationEntryPoint         : Unauthorized error: Bad credentials
+org.springframework.security.authentication.BadCredentialsException: Bad credentials
+	at org.springframework.security.authentication.dao.DaoAuthenticationProvider.additionalAuthenticationChecks(DaoAuthenticationProvider.java:92) ~[spring-security-core-6.x.jar:6.x]
+	at org.springframework.security.authentication.dao.DaoAuthenticationProvider.authenticate(DaoAuthenticationProvider.java:149) ~[spring-security-core-6.x.jar:6.x]
+	at org.springframework.security.authentication.ProviderManager.authenticate(ProviderManager.java:182) ~[spring-security-core-6.x.jar:6.x]
+	at org.springframework.security.authentication.ProviderManager.authenticate(ProviderManager.java:201) ~[spring-security-core-6.x.jar:6.x]
+	at org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.attemptAuthentication(UsernamePasswordAuthenticationFilter.java:85) ~[spring-security-web-6.x.jar:6.x]
+	at org.springframework.security.web.authentication.AbstractAuthenticationProcessingFilter.doFilter(AbstractAuthenticationProcessingFilter.java:231) ~[spring-security-web-6.x.jar:6.x]
+	at org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:346) ~[spring-security-web-6.x.jar:6.x]
+
+
+# CASE 2: JWT Verification Failure (Expired Token Exception)
+2026-05-14 00:02:40.109 ERROR 12405 --- [nio-8080-exec-7] c.e.a.security.jwt.AuthTokenFilter      : Cannot set user authentication: {}
+io.jsonwebtoken.ExpiredJwtException: JWT expired at 2026-05-14T00:00:00Z. Current time: 2026-05-14T00:02:40Z.
+	at io.jsonwebtoken.impl.DefaultJwtParser.parse(DefaultJwtParser.java:438) ~[jjwt-impl-0.12.x.jar:0.12.x]
+	at io.jsonwebtoken.impl.DefaultJwtParser.parseClaimsJws(DefaultJwtParser.java:498) ~[jjwt-impl-0.12.x.jar:0.12.x]
+	at com.example.app.security.jwt.JwtUtils.validateJwtToken(JwtUtils.java:45) ~[classes/:na]
+	at com.example.app.security.jwt.AuthTokenFilter.doFilterInternal(AuthTokenFilter.java:32) ~[classes/:na]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:117) ~[spring-web-6.x.jar:6.x]
+	at org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:346) ~[spring-security-web-6.x.jar:6.x]
+
+
+# CASE 3: Account Disabled / Locked Out
+2026-05-14 00:04:22.881 WARN 12405 --- [io-8080-exec-12] o.s.s.c.AuthenticationEntryPoint         : Unauthorized error: User is disabled
+org.springframework.security.authentication.DisabledException: User is disabled
+	at org.springframework.security.authentication.dao.DaoAuthenticationProvider.authenticate(DaoAuthenticationProvider.java:134) ~[spring-security-core-6.x.jar:6.x]
+	at org.springframework.security.authentication.ProviderManager.authenticate(ProviderManager.java:182) ~[spring-security-core-6.x.jar:6.x]
+	at org.springframework.security.web.authentication.www.BasicAuthenticationFilter.doFilterInternal(BasicAuthenticationFilter.java:164) ~[spring-security-web-6.x.jar:6.x]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:117) ~[spring-web-6.x.jar:6.x]
+
+
+# CASE 4: Missing Authentication / Anonymous User Accessing Restricted Route
+2026-05-14 00:05:11.002 INFO 12405 --- [nio-8080-exec-2] o.s.s.w.a.AnonymousAuthenticationFilter  : Populated SecurityContextHolder with anonymous token
+2026-05-14 00:05:11.015 WARN 12405 --- [nio-8080-exec-2] o.s.s.c.AuthenticationEntryPoint         : Responding with unauthorized error. Message - Full authentication is required to access this resource
+org.springframework.security.authentication.InsufficientAuthenticationException: Full authentication is required to access this resource
+	at org.springframework.security.web.access.intercept.AuthorizationFilter.doFilter(AuthorizationFilter.java:100) ~[spring-security-web-6.x.jar:6.x]
+	at org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:346) ~[spring-security-web-6.x.jar:6.x]
+	at org.springframework.security.web.access.ExceptionTranslationFilter.handleSpringSecurityException(ExceptionTranslationFilter.java:315) ~[spring-security-web-6.x.jar:6.x]
+	at org.springframework.security.web.access.ExceptionTranslationFilter.doFilter(ExceptionTranslationFilter.java:143) ~[spring-security-web-6.x.jar:6.x]

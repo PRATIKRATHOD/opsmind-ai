@@ -1,0 +1,100 @@
+# RUNBOOK: JVM OutOfMemoryError (OOM) Incident Response
+**Document Version:** 1.2  
+**Target Audience:** DevOps, SRE, Production Support Engineers  
+**Objective:** Rapidly mitigate, capture diagnostics, and resolve JVM memory exhaustion events.
+
+---
+
+## 🚨 PHASE 1: Immediate Triage & Mitigation
+When a service triggers an OOM alert, prioritize service availability while preserving diagnostic data.
+
+### 1.1 Verify Traffic Routing
+Check if the instance is still taking traffic. If the JVM is in a "zombie" state (alive but unresponsive), manually pull it from the load balancer:
+* **AWS/ALB:** Deregister the target instance.
+* **Kubernetes:** The liveness probe should fail if configured correctly, but you can force eviction by deleting the pod:
+  ```bash
+  kubectl delete pod <pod-name> -n <namespace> --grace-period=0 --force
+  ```
+
+### 1.2 Capture Real-Time Process Metrics (Before Restarting)
+If the process is still reachable via CLI, run these commands to capture the thread state and memory layout:
+```bash
+# Locate the Java Process ID (PID)
+PID=\$(jcmd | grep -v JCmd | awk '{print \$1}')
+
+# Capture thread dump to see what threads are stuck or allocating heavily
+jstack -l \(PID > /tmp/oom_thread_dump_\)(date +%F_%T).txt
+
+# Capture heap histogram to see top allocated objects in memory
+jmap -histo:live \(PID > /tmp/oom_heap_histogram_\)(date +%F_%T).txt
+```
+
+### 1.3 Restart the Service
+Once diagnostics are secured (or if the instance is completely frozen), restart the service to restore user traffic:
+```bash
+# Systemd setup
+sudo systemctl restart <service-name>
+
+# Docker setup
+docker restart <container-id>
+```
+
+---
+
+## 🔍 PHASE 2: Diagnostic Data Gathering
+
+### 2.1 Locate the Heap Dump (`.hprof`)
+Search the filesystem for the automated heap dump generated at the time of the crash (triggered by `-XX:+HeapDumpOnOutOfMemoryError`):
+```bash
+find / -name "*.hprof" 2>/dev/null
+```
+*Move the `.hprof` file to a persistent storage bucket (e.g., AWS S3) immediately so it is not lost during server rotation or auto-scaling down events.*
+
+### 2.2 Extract the Exact OOM Error Subtype
+Run a search through your application log files to pinpoint the exact memory region failure:
+```bash
+grep -i "OutOfMemoryError" /var/log/apps/<your-app-log>.log -B 2 -A 5
+```
+**Match the log output to one of these definitions:**
+* `Java heap space`: The active heap is too small or contains a memory leak.
+* `GC Overhead limit exceeded`: The JVM is thrashing; it spends all time performing GC with zero memory recovery.
+* `Metaspace`: Dynamic class definitions or reflection objects have filled up the metadata area.
+* `Unable to create new native thread`: The host operating system has hit its maximum thread limit (`ulimit -u`).
+
+---
+
+## 🛠️ PHASE 3: Root Cause Analysis (RCA)
+
+### 3.1 Heap Dump Analysis via Eclipse MAT
+1. Download the `.hprof` file to your local workstation or an analysis server.
+2. Open the file inside the [Eclipse Memory Analyzer Tool (MAT)](https://eclipse.dev).
+3. Run the **Leak Suspects Report**.
+4. **Key Metrics to Inspect:**
+   * **Retained Heap:** Look for objects holding onto massive quantities of memory.
+   * **GC Roots:** Trace the paths from the largest objects back to a GC Root to see what active thread prevents their cleanup.
+   * **Dominator Tree:** Identify the biggest single points of retention.
+
+### 3.2 Thread & GC Log Inspection
+1. Open the thread dump file captured during Phase 1. Look for threads stuck in long-running loops or executing queries handling large datasets.
+2. Check your GC logs to assess the allocation rate. If the memory usage drops to a low baseline after full GC events, the issue is likely a sudden traffic spike rather than a permanent code leak.
+
+---
+
+## 🚀 PHASE 4: Permanent Remediation
+
+### 4.1 Update Proactive Startup Arguments
+Ensure the target JVM configuration includes robust diagnostic flags in its startup options (`JAVA_OPTS`):
+```bash
+JAVA_OPTS="-Xms4g -Xmx4g \
+-XX:+HeapDumpOnOutOfMemoryError \
+-XX:HeapDumpPath=/var/log/apps/heapdump.hprof \
+-XX:+ExitOnOutOfMemoryError \
+-Xlog:gc*,gc+age=trace:file=/var/log/apps/gc.log:time,uptime,pid:filecount=5,filesize=100M"
+```
+
+### 4.2 Code-Level Checklist for Engineering Team
+If analysis points to a software defect, hand off these action items to the development squad:
+* [ ] Convert all unbounded static collections (e.g., `static HashMap`) to bounded LRU caches or weak-reference maps.
+* [ ] Enforce database pagination (`LIMIT` / `OFFSET` or cursor-based streaming) instead of pulling entire tables into memory.
+* [ ] Wrap all file and network I/O streams inside formal `try-with-resources` statements to guarantee block closure.
+* [ ] Audit framework cache configurations (such as Hibernate query plan caches or Spring object pools) to apply hard size maximums.

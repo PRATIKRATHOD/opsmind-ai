@@ -1,0 +1,103 @@
+# RUNBOOK: Spring Security Production Incident Response
+**Document Version:** 1.0  
+**Target Audience:** DevOps, SREs, Security Engineers, Backend Developers  
+**Objective:** Systematically diagnose, isolate, and mitigate Spring Security filter chain blocks, authentication failures, and authorization anomalies in production.
+
+---
+
+## 🚨 PHASE 1: Immediate Triage & Identification
+When security alerts spike or users report sudden HTTP 401 (Unauthorized) or HTTP 403 (Forbidden) access drops, determine if the issue stems from configuration mismatches, filter blocks, or bad payloads.
+
+### 1.1 Extract the Spring Security Core Exception
+Spring Security handles security via exception translation filters. Search application log streams to capture the root error signature:
+```bash
+# Locate Bad Credentials, Account Locks, or Access Denied traces
+grep -E "BadCredentialsException|DisabledException|LockedException|AccessDeniedException" /var/log/apps/app.log -B 2 -A 5
+```
+
+### 1.2 Identify the HTTP Response Status Code Code
+Match the client-facing behavior to the internal Spring Security component:
+*   **HTTP 401 Unauthorized:** Handled by `AuthenticationEntryPoint`. Indicates the user failed to prove *who they are* (missing token, invalid password, expired session).
+*   **HTTP 403 Forbidden:** Handled by `AccessDeniedHandler`. Indicates the user is authenticated but lacks the necessary *roles/authorities* (e.g., a `ROLE_USER` trying to call a `ROLE_ADMIN` endpoint).
+
+---
+
+## 🔍 PHASE 2: Diagnostic Data Gathering
+
+### 2.1 Enable Transient Spring Security Debug Logging
+If security blocks are happening silently without outputting stack traces, safely elevate the logging resolution at runtime without restarting the application:
+
+#### Via Spring Boot Actuator Endpoint (Recommended):
+```bash
+curl -X POST http://localhost:8080/actuator/loggers/org.springframework.security \
+  -H "Content-Type: application/json" \
+  -d '{"configuredLevel": "DEBUG"}'
+```
+
+#### Via Application Configuration (For Non-Production Replicas):
+```properties
+logging.level.org.springframework.security=DEBUG
+logging.level.org.springframework.web.filter.DelegatingFilterProxy=DEBUG
+```
+*Review the log output to trace the request step-by-step through the internal component chain (e.g., `CsrfFilter` -> `BasicAuthenticationFilter` -> `AuthorizationFilter`).*
+
+### 2.2 Inspect the Target Endpoint CORS & CSRF Flags
+If requests from web applications are dropped instantly before hitting execution controllers, verify if a browser cross-origin policy block is triggering:
+```bash
+# Execute a mock preflight OPTIONS check to verify cross-origin headers
+curl -X OPTIONS https://production.local \
+  -H "Origin: https://production.local" \
+  -H "Access-Control-Request-Method: POST" \
+  -v
+```
+
+---
+
+## 🛠️ PHASE 3: Root Cause Analysis (RCA)
+
+*   **Security Filter Chain Mismatch / Ordering Bug:** A new API endpoint was added, but the configuration routes it into a secure chain by default rather than an unauthenticated permit pool. The request hits a generic interceptor and fails.
+*   **CSRF Token Validation Rejections:** A `POST`, `PUT`, or `DELETE` request fails with an HTTP 403 even though authentication is fully valid. This happens if CSRF protection is active on a stateless REST API, dropping payloads that miss a valid `X-XSRF-TOKEN` header field.
+*   **Role/Authority Prefix Mismatch:** An endpoint protected with `@PreAuthorize("hasRole('ADMIN')")` consistently throws an HTTP 403. Spring Security expects roles to be prefixed with `ROLE_` inside the user details object (e.g., `ROLE_ADMIN`). If your database or token stores the raw string `ADMIN`, verification fails.
+
+---
+
+## 🚀 PHASE 4: Permanent Remediation & Hardening
+
+### 4.1 Production-Grade Spring Security Configuration Template
+Review your security pipeline Java classes against this defensive structural setup:
+
+```java
+@Configuration
+@EnableWebSecurity
+@EnableMethodSecurity
+public class SecurityConfig {
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+            // 1. Explicitly configure CSRF strategy based on your architecture
+            .csrf(csrf -> csrf.ignoringRequestMatchers("/api/v1/webhooks/**")) 
+            
+            // 2. Define clear, deterministic path-matching permissions
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                .requestMatchers("/api/v1/public/**").permitAll()
+                .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+                .anyRequest().authenticated()
+            )
+            
+            // 3. Configure robust custom exception handling
+            .exceptionHandling(ex -> ex
+                .authenticationEntryPoint(new CustomAuthenticationEntryPoint())
+                .accessDeniedHandler(new CustomAccessDeniedHandler())
+            );
+
+        return http.build();
+    }
+}
+```
+
+### 4.2 Engineering Validation Checklist
+* [ ] Ensure all automated integration testing profiles utilize `@WithMockUser` to explicitly test custom path security boundaries in your CI/CD pipeline.
+* [ ] Verify that external API routing changes are kept in perfect sync between your cloud-native API Gateway layer and the inner Spring Boot security filters.
+* [ ] Mandate that sensitive data mutation endpoints (`POST`, `PUT`) are tightly audited under strict CORS whitelist profiles.

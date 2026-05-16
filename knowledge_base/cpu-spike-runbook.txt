@@ -1,0 +1,96 @@
+# RUNBOOK: Production Linux High CPU Usage Troubleshooting
+**Document Version:** 1.0  
+**Target Audience:** DevOps, SRE, Systems Administrators, Production Support Engineers  
+**Objective:** Rapidly identify, isolate, and remediate high CPU utilization on production Linux servers while preserving diagnostics.
+
+---
+
+## 🚨 PHASE 1: Immediate Triage & Identification
+When CPU alerts fire, quickly isolate whether the bottleneck is system-wide, process-bound, or caused by resource contention.
+
+### 1.1 Analyze System-Wide CPU Distribution
+Launch `top` or `htop` in non-interactive batch mode to view overall CPU behavior:
+```bash
+top -b -n 1 | head -n 20
+```
+**Evaluate the `%Cpu(s)` metrics line:**
+*   **`us` (User):** High values indicate application code bugs, intense calculations, or unoptimized serialization/loops.
+*   **`sy` (System):** High values mean the OS kernel is thrashing (e.g., intensive context switching, high I/O system calls, or network interrupts).
+*   **`wa` (I/O Wait):** High values mean CPUs are idle because they are waiting on slow disk or network I/O operations.
+*   **`si` / `hi` (Software/Hardware Interrupts):** High values indicate the network card or driver is overwhelmed by high packet throughput.
+
+### 1.2 Identify the Top Offending Processes
+Sort running processes strictly by active CPU utilization to pinpoint the exact application instance:
+```bash
+ps -eo pid,ppid,user,%cpu,%mem,comm --sort=-%cpu | head -n 15
+```
+
+### 1.3 Isolate the Exact Thread IDs (TIDs)
+Java, Node.js, and multi-threaded C++ applications spawn many lightweight processes. Identify which specific thread inside the process is consuming the resource:
+```bash
+# Replace <PID> with the culprit process ID found in Step 1.2
+top -H -p <PID> -b -n 1 | head -n 30
+```
+*Note down the top Thread IDs (**PID/TID** column) in decimal format. If analyzing a Java process, convert these TIDs to **hexadecimal** format, as JVM thread dumps display thread IDs in hex.*
+
+---
+
+## 🔍 PHASE 2: Diagnostic Data Gathering
+
+### 2.1 Profile the Process with Linux `perf`
+If you have compilation symbols or a native runtime, capture low-level kernel and user-space execution sampling:
+```bash
+# Sample the entire system at 99Hz for 10 seconds
+sudo perf record -F 99 -a -g -- sleep 10
+
+# Generate a human-readable summary report
+sudo perf report --stdio > /tmp/perf_cpu_report.txt
+```
+
+### 2.2 Trace System Calls with `strace`
+If a process shows high **`sy` (System)** CPU usage, capture the active system calls it makes to see if it is stuck in a loop:
+```bash
+# Attach to the PID for 10 seconds and summarize system calls
+sudo strace -p <PID> -c -w -- sleep 10
+```
+
+### 2.3 Inspect Context Switching
+High system CPU with lower user CPU often means threads are constantly fighting for execution time:
+```bash
+# Check context switches for a specific PID every 1 second, 3 times
+pidstat -w -p <PID> 1 3
+```
+*   **`cswch/s` (Voluntary):** Thread gives up CPU waiting on a resource (e.g., database lock, network socket).
+*   **`nvcswch/s` (Involuntary):** Kernel forces the thread off the CPU because its time slice expired (too many threads active).
+
+---
+
+## 🛠️ PHASE 3: Root Cause Analysis (RCA)
+
+Cross-reference your gathered diagnostics against these frequent production scenarios:
+
+*   **Application Code Infinite Loops:** High `us` CPU. `strace` shows no system calls, but `perf` or runtime thread dumps show a thread stuck in a basic code loop (e.g., a `while(true)` without a break condition or an infinite `HashMap` collision).
+*   **Intensive Garbage Collection (GC):** High `us` CPU across multiple threads. The JVM or runtime is spending all its cycles trying to free memory because the heap is completely full. Validate by checking memory usage (`free -m` or `jstat`).
+*   **Cryptographic/Serialization Overhead:** High `us` CPU. Caused by high volumes of real-time JSON parsing, XML validation, encryption/decryption, or HTTPS handshakes.
+*   **High Network Interrupts (Interrupt Storm):** High `si` or `hi` CPU. Check network interface performance using `sar -n DEV 1 5` to confirm if packet rates exceed driver capacity.
+
+---
+
+## 🚀 PHASE 4: Mitigation & Remediation
+
+### 4.1 Temporary Production Mitigations (Quick Fixes)
+If you cannot restart the application immediately, throttle its resource access to prevent host exhaustion:
+
+*   **De-prioritize the Process (Nice Value):** Push the process into the background so other critical system tasks get CPU priority:
+    ```bash
+    renice -n 19 -p <PID>
+    ```
+*   **Enforce Hard CPU Capping (Cgroups/CPULimit):** Limit a process to a strict percentage of a single core (e.g., cap at 50%):
+    ```bash
+    sudo cpulimit -p <PID> -l 50 &
+    ```
+
+### 4.2 Permanent Optimization Checklist
+* [ ] **Review Thread Pool Sizing:** Ensure application thread pools (e.g., Tomcat, Netty, gRPC worker pools) do not exceed $2 \times \text{Number of CPU Cores}$ unless threads are highly I/O bound.
+* [ ] **Turn on Compiler Optimizations:** Verify production binaries are compiled with maximum optimizations enabled (e.g., `-O3` flag for C/C++ architectures).
+* [ ] **Implement Linux cgroups/Docker Limits:** Set hard limits in container orchestration manifests (Kubernetes CPU requests/limits) to prevent a single compromised microservice from crashing the underlying bare-metal host.

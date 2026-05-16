@@ -1,0 +1,67 @@
+# RUNBOOK: Microservices API Latency Troubleshooting
+**Document Version:** 1.0  
+**Target Audience:** SREs, DevOps, Backend Architects, Support Engineers  
+**Objective:** Systematically track down, isolate, and mitigate latency spikes across distributed microservice architectures.
+
+---
+
+## 🚨 PHASE 1: Immediate Triage & Isolation
+When API latency alerts cross thresholds, instantly determine if the slowdown is localized, downstream, or infrastructure-wide.
+
+### 1.1 Analyze the Latency Profile
+Review your API Gateway or reverse proxy metrics to classify the latency signature:
+*   **P99 Spike Only:** Edge cases, heavy database queries, payload serialization variations, or stop-the-world Garbage Collection.
+*   **P50 & P99 Elevated (Uniform Slowdown):** Total saturation. Check for database connection pool exhaustion, network throttles, or downstream dependency blockages.
+
+### 1.2 Inspect Distributed Tracing (APM)
+If utilizing tools like OpenTelemetry, Jaeger, or Datadog, query your traces to isolate the bottleneck:
+```text
+[API Gateway] ──(2ms)──> [Auth Service] ──(5ms)──> [Order Service] ──(2500ms !!)──> [Inventory Service]
+```
+*   **Self-Time vs. Total-Time:** If a service has a high total-time but low self-time, it is cleanly waiting on a downstream dependency. If self-time is high, the performance bug lies directly within that specific microservice code/runtime.
+
+### 1.3 Check Network & HTTP Status Codes
+Verify if the latency is accompanied by specific error signatures:
+*   **HTTP 504 (Gateway Timeout):** Downstream service is completely locked or failing to respond within the reverse proxy's read timeout limit.
+*   **HTTP 429 (Too Many Requests):** Rate limiting mechanisms are delaying processing pipelines.
+
+---
+
+## 🔍 PHASE 2: Diagnostic Data Gathering
+
+### 2.1 Trace Inter-Service HTTP/gRPC Overhead
+Use `tcpdump` on a container or host network interface to verify if network transit or handshakes are introducing artificial delays:
+```bash
+# Capture packets on port 8080 to measure request/response delta times
+sudo tcpdump -i any -nnvvSR src port 8080 or dst port 8080 -w /tmp/api_latency.pcap
+```
+
+### 2.2 Identify Runtime Thread Bottlenecks
+If the target microservice is writing slowly, inspect its internal thread pools. For example, check Java/Spring or Node.js event-loop delays to see if synchronous, non-blocking code is executing on critical paths.
+
+---
+
+## 🛠️ PHASE 3: Root Cause Analysis (RCA)
+
+*   **Downstream Fan-Out Amplification (N+1 Problem):** A microservice loops through an array and makes sequential, individual synchronous HTTP/gRPC network calls to a downstream service instead of processing a single batched payload.
+*   **Synchronous Network Blocking:** The service code blocks execution threads while waiting for third-party payment gateways, telemetry tracking, or email systems instead of using an asynchronous messaging queue (e.g., Kafka/RabbitMQ).
+*   **DNS Resolution Delay:** Inter-service requests drop frames or wait up to 2-5 seconds per call due to misconfigured DNS search paths (`ndots:5` issue in Kubernetes `resolv.conf`).
+*   **Resource Throttling:** The container engine caps CPU usage based on configured limits, creating artificial scheduling delays inside the runtime engine.
+
+---
+
+## 🚀 PHASE 4: Permanent Remediation & Hardening
+
+### 4.1 Apply Production Design Patterns
+*   **Circuit Breakers:** Implement resilience engines (e.g., Resilience4j, Envoy filters) to fail fast when a downstream microservice degrades, protecting your local thread pool from starvation.
+*   **Timeouts and Retries:** Enforce aggressive, explicit network connection and read timeouts on all internal HTTP/gRPC clients:
+    ```yaml
+    # Example client timeout configuration
+    http.client.connect-timeout-ms=500
+    http.client.read-timeout-ms=2000
+    ```
+
+### 4.2 Architectural Checklist
+* [ ] Implement Redis or Memcached layers for static, high-frequency internal metadata queries.
+* [ ] Convert legacy synchronous internal workflows into asynchronous, event-driven architectures.
+* [ ] Review and adjust Kubernetes `ndots` configurations for internal headless service string resolutions.

@@ -1,0 +1,106 @@
+# RUNBOOK: Database Connection Pool Exhaustion Troubleshooting
+**Document Version:** 1.0  
+**Target Audience:** DevOps, SRE, Production Support Engineers, Database Administrators  
+**Objective:** Rapidly detect, mitigate, and permanently fix application database connection pool starvation.
+
+---
+
+## 🚨 PHASE 1: Immediate Triage & Mitigation
+When an application logs `ConnectionUnavailableException`, `PoolInitializationException`, or connection timeouts, prioritize clearing hung connections to restore service.
+
+### 1.1 Identify the Affected Application & Database
+Identify which pool is exhausted by checking application error logs:
+*   **HikariCP:** `HikariPool-1 - Connection is not available, request timed out after 30000ms.`
+*   **Tomcat Pool:** `TimeoutException: Timeout: Pool empty. Unable to fetch a connection.`
+*   **c3p0:** `An Exception occurred while getting a Connection from the Pool!`
+
+### 1.2 Force-Kill Leaked & Idle DB Connections
+If the database engine is saturated and refusing new connections, a DBA must terminate idle or abandoned connections directly on the database cluster to free up slots.
+
+#### For PostgreSQL:
+```sql
+-- View active connections and current queries
+SELECT pid, age(clock_timestamp(), query_start), usename, state, query 
+FROM pg_stat_activity 
+WHERE state != 'idle' AND query NOT LIKE '%pg_stat_activity%';
+
+-- Terminate backend processes that have been idle/stuck for too long
+SELECT pg_terminate_backend(pid) 
+FROM pg_stat_activity 
+WHERE state = 'idle in transaction' OR age(clock_timestamp(), query_start) > interval '5 minutes';
+```
+
+#### For MySQL / MariaDB:
+```sql
+-- Show active threads and query states
+SHOW PROCESSLIST;
+
+-- Kill the specific stuck thread ID found in the process list
+KILL <thread_id>;
+```
+
+### 1.3 Isolate or Restart the Application Nodes
+If the application pool is completely locked up due to an unreleased connection leak in the code, restarting the database will only provide temporary relief. Clean the application state:
+```bash
+# Restart the application service to reset local connection pools
+sudo systemctl restart <service-name>
+
+# Alternatively, force-recycle Kubernetes pods running the app
+kubectl rollout restart deployment/<deployment-name> -n <namespace>
+```
+
+---
+
+## 🔍 PHASE 2: Diagnostic Data Gathering
+
+### 2.1 Capture an Application Thread Dump
+Before restarting the application (if possible), trigger a thread dump. This reveals exactly which threads are waiting for a connection or holding onto one:
+```bash
+PID=\$(jcmd | grep -v JCmd | awk '{print \$1}')
+jstack -l \(PID > /tmp/db_pool_thread_dump_\)(date +%F_%T).txt
+```
+*Look for threads in `BLOCKED` or `TIMED_WAITING` states originating from connection pool classes (e.g., `com.zaxxer.hikari.pool.HikariPool`).*
+
+### 2.2 Turn On Pool Leak Detection Logs
+Enable transient leak detection to print stack traces when connections are held longer than expected. Add or update these environment flags on your staging or production instance:
+
+
+| Pool Provider | Configuration Property | Recommended Diagnostic Value |
+| :--- | :--- | :--- |
+| **HikariCP** | `leakDetectionThreshold` | `20000` (20 seconds in milliseconds) |
+| **Tomcat DBCP** | `removeAbandonedOnBorrow` / `removeAbandonedTimeout` | `true` / `60` (60 seconds) |
+
+---
+
+## 🛠️ PHASE 3: Root Cause Analysis (RCA)
+
+Inspect the thread dumps and application metrics to isolate the specific structural cause of the pool exhaustion:
+
+*   **Unclosed Connections (Connection Leak):** The application borrows a connection from the pool but fails to return it via `.close()` due to unhandled exceptions or poor try-catch block structure.
+*   **Slow-Running Queries:** Long-running database transactions (e.g., massive table scans, unindexed joins) block connections, preventing them from returning swiftly back into the pool.
+*   **Thread-Pool/Connection-Pool Mismatch:** The web server thread pool (e.g., Tomcat, Netty) is sized dramatically larger than the database connection pool. High concurrent traffic creates thread contention for limited database slots.
+*   **Nested Transactions / Deadlocks:** A single thread attempts to open a second database connection while holding its first connection open, causing self-deadlocking when the pool size is low.
+
+---
+
+## 🚀 PHASE 4: Permanent Remediation
+
+### 4.1 Apply Production-Ready Pool Configurations
+Update your application framework properties file (e.g., `application.properties` or `yaml`) to include defensive timeout parameters:
+
+```properties
+# Example production-grade HikariCP tuning parameters
+spring.datasource.hikari.maximum-pool-size=20
+spring.datasource.hikari.minimum-idle=5
+spring.datasource.hikari.idle-timeout=300000
+spring.datasource.hikari.max-lifetime=1800000
+spring.datasource.hikari.connection-timeout=15000
+spring.datasource.hikari.leak-detection-threshold=10000
+```
+
+### 4.2 Code-Level Optimization Checklist
+Provide this list to the engineering squad to ensure connections are efficiently released:
+* [ ] Enforce the use of **`try-with-resources`** blocks for all JDBC `Connection`, `Statement`, and `ResultSet` operations.
+* [ ] Review ORM frameworks (e.g., Hibernate, Spring Data JPA) to ensure `@Transactional` boundaries are kept as tight and short as possible.
+* [ ] Move slow, blocking third-party API calls *outside* of transactional database contexts to keep the connection window short.
+* [ ] Verify all heavy read operations utilize database read replicas rather than pulling from the primary database pool.

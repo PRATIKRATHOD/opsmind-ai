@@ -1,0 +1,35 @@
+# --------------------------------------------------------------------------------
+# LOG FORMAT REFERENCE: Microservice Network / HTTP / gRPC Timeout Exception Logs
+# --------------------------------------------------------------------------------
+
+# CASE 1: Spring WebClient Read Timeout Exception (Downstream Microservice Stalled)
+2026-05-14 00:18:44.891 ERROR 14200 --- [reactor-http-nio-2] c.e.app.client.InventoryServiceClient    : Error fetching inventory status from downstream service
+io.netty.handler.timeout.ReadTimeoutException: null
+	at io.netty.handler.timeout.ReadTimeoutHandler.readTimedOut(ReadTimeoutHandler.java:84) ~[netty-handler-4.x.jar:4.x]
+Caused by: reactor.netty.http.client.PrematureCloseException: Connection prematurely closed BEFORE response bytes were received
+	at reactor.netty.http.client.HttpClientConnect$HttpIOHandlerObserver.onStateChange(HttpClientConnect.java:438) ~[reactor-netty-http-1.x.jar:1.x]
+
+
+# CASE 2: Spring Cloud OpenFeign / Ribbon Gateway Read Timeout (HTTP 504 Pipeline)
+2026-05-14 00:19:12.003 ERROR 14200 --- [nio-8080-exec-9] o.a.c.c.C.[.[.[.[dispatcherServlet]      : Servlet.service() for servlet [dispatcherServlet] in context with path [] threw exception
+feign.RetryableException: Read timed out executing GET http://payment-service/v1/charges/ch_12948
+	at feign.FeignException.errorExecuting(FeignException.java:268) ~[feign-core-12.x.jar:na]
+	at feign.SynchronousMethodHandler.executeAndDecode(SynchronousMethodHandler.java:129) ~[feign-core-12.x.jar:na]
+	at feign.SynchronousMethodHandler.invoke(SynchronousMethodHandler.java:89) ~[feign-core-12.x.jar:na]
+Caused by: java.net.SocketTimeoutException: Read timed out
+	at java.net.SocketInputStream.socketRead0(Native Method) ~[na:na]
+	at java.net.SocketInputStream.socketRead(SocketInputStream.java:115) ~[na:na]
+
+
+# CASE 3: gRPC DEADLINE_EXCEEDED Error (Inter-Service RPC Timeout)
+2026-05-14 00:20:01.332 ERROR 14200 --- [grpc-default-executor-0] c.e.app.grpc.ProductServiceGrpcClient    : gRPC call failed to remote product catalog cluster
+io.grpc.StatusRuntimeException: DEADLINE_EXCEEDED: deadline exceeded after 1.998471200s. [Tools: context timed out]
+	at io.grpc.Status.asRuntimeException(Status.java:539) ~[grpc-api-1.x.jar:1.x]
+	at io.grpc.stub.ClientCalls$BlockingResponseStream.hasNext(ClientCalls.java:660) ~[grpc-stub-1.x.jar:1.x]
+
+
+# CASE 4: Apache HttpClient Connection Pool Timeout (Lease Request Expiry)
+2026-05-14 00:21:45.112 WARN 14200 --- [nio-8080-exec-11] o.a.h.i.c.PoolingHttpClientConnectionManager : Connection request failed
+org.apache.http.conn.ConnectionPoolTimeoutException: Timeout waiting for connection from pool
+	at org.apache.http.impl.conn.PoolingHttpClientConnectionManager.leaseConnection(PoolingHttpClientConnectionManager.java:316) ~[httpclient-4.x.jar:4.x]
+	at org.apache.http.impl.execchain.MainClientExec.execute(MainClientExec.java:166) ~[httpclient-4.x.jar:4.x]
