@@ -46,6 +46,20 @@ LOG_PATTERNS = {
     "GC overhead limit exceeded": {
         "status": "HIGH_GC_ACTIVITY",
         "details": "High JVM garbage collection activity"
+    },
+    "response time exceeded": {
+        "status": "HIGH_API_LATENCY",
+        "details": "API response latency exceeded threshold"
+    },
+
+    "gateway timeout": {
+        "status": "API_GATEWAY_TIMEOUT",
+        "details": "Gateway timeout errors detected"
+    },
+
+    "traffic spike": {
+        "status": "HIGH_TRAFFIC_LOAD",
+        "details": "High incoming traffic spike detected"
     }
 }
 

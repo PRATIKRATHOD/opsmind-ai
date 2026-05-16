@@ -1,4 +1,7 @@
 from app.planner.tool_registry import TOOLS
+from app.agents.retrieval_query_agent import (
+    generate_retrieval_query
+)
 
 
 def execute_tools(state):
@@ -23,27 +26,12 @@ def execute_tools(state):
         print(f"Executing tool: {tool_name}")
 
         if tool_name == "rag":
+            optimized_query = generate_retrieval_query(
+                incident
+            )
 
-            query = f"""
-            Application:
-            {incident["application"]}
-
-            Issue:
-            {incident["issue"]}
-
-            Monitoring Status:
-            {results.get("monitoring", {}).get("status", "")}
-
-            Log Status:
-            {results.get("logs", {}).get("status", "")}
-
-            Log Details:
-            {results.get("logs", {}).get("details", "")}
-
-            Find the most operationally relevant troubleshooting runbook.
-            """
-
-            result = tool(query)
+            result = tool(optimized_query)
+            
 
         else:
 

@@ -27,7 +27,7 @@ def vector_knowledge_agent(query):
         n_results=1
     )
 
-    documents = results["documents"][0]
+    documents = results["documents"][0][:1000]
 
     if documents:
 

@@ -12,12 +12,16 @@ from app.safety.guardrails import validate_ai_recommendation
 from app.reliability.retry_handler import execute_with_retry
 from app.planner.planner_agent import planner_agent
 from app.planner.tool_executor import execute_tools
+from app.agents.incident_memory_agent import (
+    search_similar_incidents,
+    store_incident_memory
+)
 
 
 class IncidentState(TypedDict):
 
     planner_result: dict
-    
+
     incident: dict
 
     monitoring_result: dict
@@ -25,11 +29,14 @@ class IncidentState(TypedDict):
     log_result: dict
 
     knowledge_result: dict
+    
+    memory_result: dict
 
     llm_result: str
 
     safety_result: dict
 
+    memory_result: dict
     
 
 
@@ -110,7 +117,9 @@ def llm_node(state):
                 state["incident"],
                 state["monitoring_result"],
                 state["log_result"],
-                knowledge_result
+                knowledge_result,
+                state.get("memory_result", {})
+                
             )
         )
 
@@ -170,6 +179,36 @@ def tool_executor_node(state):
 
     return state
 
+def memory_node(state):
+
+    print("Running Memory Node")
+
+    incident = state["incident"]
+
+    query = f"""
+    Application:
+    {incident["application"]}
+
+    Issue:
+    {incident["issue"]}
+    """
+
+    result = search_similar_incidents(
+        query
+    )
+
+    state["memory_result"] = result
+
+    return state
+
+def memory_store_node(state):
+
+    print("Storing Incident Memory")
+
+    store_incident_memory(state)
+
+    return state
+
 # def route_after_logs(state):
 
 #     log_status = state["log_result"]["status"]
@@ -209,22 +248,44 @@ def tool_executor_node(state):
 
 # workflow.add_edge("safety", END)
 
-
-
 workflow = StateGraph(IncidentState)
 
-workflow.add_node("planner", planner_node)
+
+workflow.add_node(
+    "planner",
+    planner_node
+)
 
 workflow.add_node(
     "tool_executor",
     tool_executor_node
 )
 
-workflow.add_node("llm", llm_node)
+workflow.add_node(
+    "memory",
+    memory_node
+)
 
-workflow.add_node("safety", safety_node)
+workflow.add_node(
+    "llm",
+    llm_node
+)
 
-workflow.set_entry_point("planner")
+workflow.add_node(
+    "safety",
+    safety_node
+)
+
+workflow.add_node(
+    "memory_store",
+    memory_store_node
+)
+
+
+workflow.set_entry_point(
+    "planner"
+)
+
 
 workflow.add_edge(
     "planner",
@@ -233,6 +294,11 @@ workflow.add_edge(
 
 workflow.add_edge(
     "tool_executor",
+    "memory"
+)
+
+workflow.add_edge(
+    "memory",
     "llm"
 )
 
@@ -243,10 +309,15 @@ workflow.add_edge(
 
 workflow.add_edge(
     "safety",
+    "memory_store"
+)
+
+workflow.add_edge(
+    "memory_store",
     END
 )
 
-graph = workflow.compile()
 
+graph = workflow.compile()
 
 

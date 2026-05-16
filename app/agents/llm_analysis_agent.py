@@ -5,7 +5,8 @@ def llm_analysis_agent(
     incident,
     monitoring_result,
     log_result,
-    knowledge_result
+    knowledge_result,
+     memory_result
 ):
 
     prompt = f"""
@@ -26,6 +27,9 @@ def llm_analysis_agent(
 
     Knowledge Base Recommendation:
     {knowledge_result}
+
+    Historical Similar Incidents:
+    {memory_result}
 
     Provide:
     1. Root cause summary

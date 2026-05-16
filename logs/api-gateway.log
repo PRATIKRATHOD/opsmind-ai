@@ -1,0 +1,7 @@
+2026-05-14 12:01:11 WARN API response time exceeded threshold: 4200ms
+
+2026-05-14 12:01:15 ERROR Upstream request timeout after 30 seconds
+
+2026-05-14 12:01:22 WARN Traffic spike detected: requests_per_second=12000
+
+2026-05-14 12:01:31 ERROR Gateway timeout while routing request to backend service

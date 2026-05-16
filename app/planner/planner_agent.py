@@ -37,10 +37,24 @@ def planner_agent(incident):
 
     print(f"Planner response: {content}")
 
-    tools = [
-        tool.strip().lower()
-        for tool in content.split(",")
-    ]
+    allowed_tools = {
+        "monitoring",
+        "logs",
+        "rag"
+    }
+
+    tools = []
+
+    for item in content.split(","):
+
+        cleaned = item.strip().lower()
+
+        for allowed in allowed_tools:
+
+            if allowed in cleaned:
+                tools.append(allowed)
+
+    tools = list(set(tools))
     if "rag" not in tools:
         tools.append("rag")
 
