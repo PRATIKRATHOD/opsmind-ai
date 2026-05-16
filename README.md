@@ -91,3 +91,16 @@ http://127.0.0.1:8000/docs
   "issue": "High API response latency during peak traffic"
 }
 ```
+# Screenshots
+
+## Swagger UI
+
+![Swagger UI](screenshots/Swagger%20UI.png)
+
+## Successful RCA Response
+
+![RCA Response](screenshots/successful%20RCA%20response.png)
+
+## Workflow Execution Logs
+
+![Workflow Logs](screenshots/terminal%20workflow%20logs.png)
