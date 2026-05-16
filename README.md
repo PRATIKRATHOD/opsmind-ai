@@ -45,16 +45,15 @@ The system simulates enterprise-grade operational incident workflows by combinin
 
 ```text
 opsmind-ai/
-│
-├── app/
-├── knowledge_base/
-├── logs/
-├── chroma_db/
-├── memory_store.json
-├── README.md
-├── ARCHITECTURE.md
-├── SKILLS_LEARNED.md
-└── requirements.txt
+|-- app/
+|-- knowledge_base/
+|-- logs/
+|-- chroma_db/
+|-- memory_store.json
+|-- README.md
+|-- ARCHITECTURE.md
+|-- SKILLS_LEARNED.md
+`-- requirements.txt
 ```
 
 ---
@@ -91,6 +90,7 @@ http://127.0.0.1:8000/docs
   "issue": "High API response latency during peak traffic"
 }
 ```
+
 # Screenshots
 
 ## Swagger UI
@@ -105,9 +105,7 @@ http://127.0.0.1:8000/docs
 
 ![Workflow Logs](screenshots/terminal%20workflow%20logs.png)
 
-
-
-# OpsMind-AI v2.0 — Autonomous Tool Planning
+# OpsMind-AI v2.0 - Autonomous Tool Planning
 
 OpsMind-AI v2.0 introduces autonomous tool-planning capabilities using LLM-driven orchestration.
 
@@ -126,16 +124,10 @@ The system now dynamically decides which operational tools to execute based on i
 
 ```text
 Incident
-↓
-Planner Agent
-↓
-Dynamic Tool Selection
-↓
-Tool Executor
-↓
-Monitoring / Logs / RAG
-↓
-LLM RCA Generation
-↓
-Safety Validation
+-> Planner Agent
+-> Dynamic Tool Selection
+-> Tool Executor
+-> Monitoring / Logs / RAG
+-> LLM RCA Generation
+-> Safety Validation
 ```

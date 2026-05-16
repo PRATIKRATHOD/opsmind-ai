@@ -1,24 +1,49 @@
-import json
-from pathlib import Path
-
 import chromadb
 from sentence_transformers import SentenceTransformer
 
 
-model = SentenceTransformer(
-    "sentence-transformers/all-MiniLM-L6-v2"
-)
-
-client = chromadb.PersistentClient(
-    path="chroma_db"
-)
-
-collection = client.get_or_create_collection(
-    name="incident_memory"
-)
+_model = None
+_collection = None
 
 
-MEMORY_FILE = Path("memory_store.json")
+def _get_model():
+
+    global _model
+
+    if _model is None:
+        _model = SentenceTransformer(
+            "sentence-transformers/all-MiniLM-L6-v2"
+        )
+
+    return _model
+
+
+def _get_collection():
+
+    global _collection
+
+    if _collection is None:
+        client = chromadb.PersistentClient(
+            path="chroma_db"
+        )
+
+        _collection = client.get_or_create_collection(
+            name="incident_memory"
+        )
+
+    return _collection
+
+
+def _encode_text(text):
+
+    embedding = _get_model().encode(
+        text
+    )
+
+    if hasattr(embedding, "tolist"):
+        return embedding.tolist()
+
+    return list(embedding)
 
 
 def store_incident_memory(state):
@@ -41,11 +66,11 @@ def store_incident_memory(state):
     {llm_result}
     """
 
-    embedding = model.encode(
+    embedding = _encode_text(
         memory_text
-    ).tolist()
+    )
 
-    collection.add(
+    _get_collection().upsert(
         documents=[memory_text],
         embeddings=[embedding],
         ids=[incident["ticket_id"]]
@@ -63,11 +88,11 @@ def store_incident_memory(state):
 
 def search_similar_incidents(query):
 
-    embedding = model.encode(
+    embedding = _encode_text(
         query
-    ).tolist()
+    )
 
-    results = collection.query(
+    results = _get_collection().query(
         query_embeddings=[embedding],
         n_results=2
     )

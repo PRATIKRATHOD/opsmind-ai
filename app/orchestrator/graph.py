@@ -29,8 +29,6 @@ class IncidentState(TypedDict):
     log_result: dict
 
     knowledge_result: dict
-    
-    memory_result: dict
 
     llm_result: str
 
@@ -110,13 +108,29 @@ def llm_node(state):
         }
     )
 
+    monitoring_result = state.get(
+        "monitoring_result",
+        {
+            "status": "SKIPPED",
+            "details": "Monitoring analysis skipped"
+        }
+    )
+
+    log_result = state.get(
+        "log_result",
+        {
+            "status": "SKIPPED",
+            "details": "Log analysis skipped"
+        }
+    )
+
     try:
 
         result = execute_with_retry(
             lambda: llm_analysis_agent(
                 state["incident"],
-                state["monitoring_result"],
-                state["log_result"],
+                monitoring_result,
+                log_result,
                 knowledge_result,
                 state.get("memory_result", {})
                 
@@ -140,7 +154,7 @@ def llm_node(state):
 
 
 def safety_node(state):
-    print("Running Safty Node")
+    print("Running Safety Node")
 
     result = validate_ai_recommendation(
         state["llm_result"]
