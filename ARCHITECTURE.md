@@ -149,3 +149,18 @@ TOOLS = {
 ## Dynamic Tool Executor
 
 The Tool Executor dynamically invokes selected tools and enriches shared workflow state during runtime.
+
+---
+
+# OpsMind-AI v2.1.1 Architecture Note
+
+v2.1.1 is a stabilization patch for the v2.1 Incident Memory Intelligence release. The architecture remains unchanged.
+
+The patch improves reliability in the existing flow by:
+
+* Making incident memory writes repeatable through ChromaDB upserts.
+* Lazy-loading the incident memory vector store and embedding model.
+* Providing safe LLM workflow defaults when planner-selected tool outputs are absent.
+* Keeping historical incident retrieval as part of the established LangGraph workflow.
+
+No new agents, orchestration layers, or architectural responsibilities are introduced in v2.1.1.

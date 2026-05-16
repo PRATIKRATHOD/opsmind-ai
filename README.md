@@ -131,3 +131,16 @@ Incident
 -> LLM RCA Generation
 -> Safety Validation
 ```
+
+# OpsMind-AI v2.1.1 - Stabilization Patch
+
+OpsMind-AI v2.1.1 is a patch release for the v2.1 Incident Memory Intelligence release. It focuses on reliability, repeatable tests, and release hygiene without changing the architecture.
+
+## Patch Fixes
+
+* Stabilized incident memory persistence by using vector memory upserts for repeated ticket IDs.
+* Improved memory lookup reliability with lazy ChromaDB and embedding model initialization.
+* Added safe workflow defaults when optional planner-selected tool outputs are unavailable.
+* Corrected vector runbook response truncation so recommendation text is capped correctly.
+* Converted incident memory validation into executable pytest coverage.
+* Cleaned release documentation rendering and test dependency setup.
