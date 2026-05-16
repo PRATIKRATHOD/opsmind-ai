@@ -6,7 +6,7 @@ The system simulates enterprise-grade operational incident workflows by combinin
 
 * Monitoring analysis
 * Log analysis
-* Semantic runbook retrieval
+* Metadata-aware semantic runbook retrieval
 * AI-generated RCA
 * Retry and reliability handling
 * AI safety guardrails
@@ -19,6 +19,7 @@ The system simulates enterprise-grade operational incident workflows by combinin
 * Multi-agent AI orchestration using LangGraph
 * Shared workflow state management
 * Vector RAG using ChromaDB
+* Metadata-aware retrieval filtering
 * Semantic retrieval using SentenceTransformers
 * Local LLM inference using Ollama + Mistral
 * Incident memory persistence
@@ -46,6 +47,7 @@ The system simulates enterprise-grade operational incident workflows by combinin
 ```text
 opsmind-ai/
 |-- app/
+|-- docs/
 |-- knowledge_base/
 |-- logs/
 |-- chroma_db/
@@ -105,42 +107,71 @@ http://127.0.0.1:8000/docs
 
 ![Workflow Logs](screenshots/terminal%20workflow%20logs.png)
 
-# OpsMind-AI v2.0 - Autonomous Tool Planning
-
-OpsMind-AI v2.0 introduces autonomous tool-planning capabilities using LLM-driven orchestration.
-
-The system now dynamically decides which operational tools to execute based on incident context.
-
-## New v2 Features
-
-* Planner Agent using Ollama + Mistral
-* Dynamic Tool Registry
-* Autonomous Tool Selection
-* Adaptive Workflow Execution
-* Context-Enriched RAG Queries
-* Tool-Based Agent Architecture
-
-## v2 Workflow
+# Current v2.2 Workflow
 
 ```text
-Incident
--> Planner Agent
--> Dynamic Tool Selection
--> Tool Executor
--> Monitoring / Logs / RAG
+Planner Agent
+-> Dynamic Tool Execution
+-> Monitoring + Logs + Metadata-Aware RAG
+-> Historical Incident Memory Search
 -> LLM RCA Generation
 -> Safety Validation
+-> Persistent Incident Storage
 ```
 
-# OpsMind-AI v2.1.1 - Stabilization Patch
+# OpsMind-AI v2.2 - Metadata-Aware Retrieval Intelligence
 
-OpsMind-AI v2.1.1 is a patch release for the v2.1 Incident Memory Intelligence release. It focuses on reliability, repeatable tests, and release hygiene without changing the architecture.
+OpsMind-AI v2.2 improves RAG retrieval accuracy by adding metadata-aware filtering to the vector retrieval path. Runbooks are categorized during vector store indexing, and incident queries are mapped to operational categories before ChromaDB search.
 
-## Patch Fixes
+## Metadata-Aware Retrieval
 
-* Stabilized incident memory persistence by using vector memory upserts for repeated ticket IDs.
-* Improved memory lookup reliability with lazy ChromaDB and embedding model initialization.
-* Added safe workflow defaults when optional planner-selected tool outputs are unavailable.
-* Corrected vector runbook response truncation so recommendation text is capped correctly.
-* Converted incident memory validation into executable pytest coverage.
-* Cleaned release documentation rendering and test dependency setup.
+The vector store now indexes runbooks with a `category` metadata field. During retrieval, the Vector Knowledge Agent detects the incident category and applies a ChromaDB metadata filter:
+
+```python
+where={"category": category}
+```
+
+This reduces semantic retrieval drift across unrelated operational domains and keeps database, security, streaming, infrastructure, and performance incidents focused on the right runbook set.
+
+## Retrieval Simplification
+
+The active RAG flow no longer depends on `retrieval_query_agent`. Tool execution now builds deterministic structured RAG queries directly from incident fields, reducing unnecessary LLM calls, improving retrieval determinism, and lowering latency.
+
+## Current Retrieval Categories
+
+* performance
+* database
+* security
+* infrastructure
+* streaming
+* general
+
+## v2.2 Validation
+
+```text
+python -m compileall app tests
+python -m pytest -q
+```
+
+Metadata retrieval validation confirmed 11 indexed runbooks, category metadata on every indexed document, and no missing category values.
+
+# Version History
+
+* v2.0 - Autonomous Tool Planning
+* v2.1 - Incident Memory Intelligence
+* v2.1.1 - Stability & Reliability Improvements
+* v2.2 - Metadata-Aware Retrieval Intelligence
+
+# Previous Release Notes
+
+## OpsMind-AI v2.0 - Autonomous Tool Planning
+
+OpsMind-AI v2.0 introduced autonomous tool-planning capabilities using LLM-driven orchestration.
+
+## OpsMind-AI v2.1 - Incident Memory Intelligence
+
+OpsMind-AI v2.1 introduced historical incident memory search into the RCA workflow. Similar past incidents can be retrieved and provided to the LLM as additional RCA context before safety validation and memory persistence.
+
+## OpsMind-AI v2.1.1 - Stabilization Patch
+
+OpsMind-AI v2.1.1 focused on reliability, repeatable tests, and release hygiene without changing the architecture.

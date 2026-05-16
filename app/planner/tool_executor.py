@@ -1,14 +1,13 @@
 from app.planner.tool_registry import TOOLS
-from app.agents.retrieval_query_agent import (
-    generate_retrieval_query
-)
 
 
 def execute_tools(state):
 
     incident = state["incident"]
 
-    selected_tools = state["planner_result"]["selected_tools"]
+    selected_tools = state["planner_result"][
+        "selected_tools"
+    ]
 
     results = {}
 
@@ -26,12 +25,20 @@ def execute_tools(state):
         print(f"Executing tool: {tool_name}")
 
         if tool_name == "rag":
-            optimized_query = generate_retrieval_query(
-                incident
-            )
 
-            result = tool(optimized_query)
-            
+            query = f"""
+            Application:
+            {incident["application"]}
+
+            Issue:
+            {incident["issue"]}
+
+            Severity:
+            {incident["severity"]}
+
+            """
+
+            result = tool(query)
 
         else:
 

@@ -1,4 +1,4 @@
-# Skills Learned — OpsMind-AI
+# Skills Learned - OpsMind-AI
 
 # Backend Development
 
@@ -29,6 +29,20 @@
 * SentenceTransformers
 * Semantic similarity search
 * Vector indexing pipelines
+* Vector metadata indexing
+* ChromaDB metadata filtering
+* Category-aware retrieval
+
+---
+
+# Retrieval Intelligence
+
+* Metadata-aware RAG retrieval
+* Retrieval drift reduction across operational domains
+* Deterministic structured retrieval queries
+* Latency reduction by removing unnecessary LLM query rewriting
+* ChromaDB `where` filters for domain-specific semantic search
+* Runbook categorization during vector store indexing
 
 ---
 
@@ -68,3 +82,5 @@
 * Stateful orchestration
 * Workflow pipelines
 * Multi-agent systems
+* Deterministic retrieval architecture
+* Clean removal of unnecessary agent dependencies
